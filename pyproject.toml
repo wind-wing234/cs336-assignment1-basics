@@ -18,6 +18,7 @@ dependencies = [
     "torch~=2.2.2; sys_platform == 'darwin' and platform_machine == 'x86_64'", # Intel Macs
     "tqdm>=4.67.1",
     "wandb>=0.19.7",
+    "torchlens>=0.1.35",
 ]
 
 
@@ -42,6 +43,11 @@ line-length = 120
 [tool.ruff.lint.extend-per-file-ignores]
 # Also ignore `E402` in all `__init__.py` files.
 "__init__.py" = ["E402", "F401", "F403", "E501"]
+
+[dependency-groups]
+dev = [
+    "ipykernel>=6.29.5",
+]
 
 [tool.ruff.lint]
 extend-select = ["UP"]
