@@ -2,9 +2,11 @@ import os
 import regex as re
 import time
 from collections import Counter
-from typing import Dict, List, Tuple
+from typing import Dict, List, Set, Tuple
+import cProfile
+import pstats
 
-from .pre_tokenizer import PreTokenizer
+from cs336_basics.bpe_tokenizer.pre_tokenizer import PreTokenizer
 
 class BPETrainer:
     def __init__(self, vocab_size: int, special_tokens: list[str]):
@@ -22,6 +24,9 @@ class BPETrainer:
         self.merges: List[Tuple[bytes, bytes]] = []
         self.splits: Dict[bytes, List[bytes]] = {}  # b"going" -> [b'g', b'o', b'ing']
         self.pair_freqs: Dict[Tuple[bytes, bytes], int] = {}
+
+        # 反向索引，记录每个pair出现在哪些单词中
+        self.pair_to_words: Dict[Tuple[bytes, bytes], Set[bytes]] = {}
     
     def initialize_splits_and_pairs(self, word_freq: Counter) -> None:
         """初始化splits和pair_freqs"""
@@ -40,6 +45,11 @@ class BPETrainer:
             for j in range(len(word_pieces) - 1):
                 pair = (word_pieces[j], word_pieces[j + 1])
                 self.pair_freqs[pair] = self.pair_freqs.get(pair, 0) + freq
+
+                # 记录pair出现在哪些单词中，构建反向索引
+                if pair not in self.pair_to_words:
+                    self.pair_to_words[pair] = set()
+                self.pair_to_words[pair].add(word)
     
     def find_best_pair(self) -> Tuple[bytes, bytes]:
         """找到频率最高的字节对"""
@@ -47,18 +57,9 @@ class BPETrainer:
     
     def update_splits_and_pairs(self, best_pair: Tuple[bytes, bytes], new_token: bytes, word_freq: Counter) -> None:
         """更新splits和pair_freqs"""
-        # 记录哪些词包含best_pair，需要被更新
-        affected_words = []
-        for word, word_pieces in self.splits.items():
-            is_pair_in_word = False
-            # for j in range(len(word_pieces) - 1):
-                # if word_pieces[j] == best_pair[0] and word_pieces[j + 1] == best_pair[1]:
-            for j, pair in enumerate(zip(word_pieces[:-1], word_pieces[1:])):
-                if pair == best_pair:
-                    is_pair_in_word = True
-                    break
-            if is_pair_in_word:
-                affected_words.append(word)
+        # 哪些词包含best_pair，需要被更新
+        # 直接从反向索引中获取
+        affected_words = list(self.pair_to_words.get(best_pair, set()))
 
         # 更新splits
         for word in affected_words:
@@ -69,6 +70,13 @@ class BPETrainer:
                     # 如果找到best_pair，合并
                     word_pieces[i] = new_token
                     word_pieces.pop(i + 1)
+                    # 更新pair_to_words，如果合并后左侧或右侧还有元素，则会出现新对
+                    if i > 0:
+                        new_pair_left = (word_pieces[i - 1], new_token)
+                        self.pair_to_words.setdefault(new_pair_left, set()).add(word)
+                    if i < len(word_pieces) - 1:
+                        new_pair_right = (new_token, word_pieces[i + 1])
+                        self.pair_to_words.setdefault(new_pair_right, set()).add(word)
                 else:
                     i += 1
         
@@ -211,11 +219,14 @@ if __name__ == "__main__":
 
     # Example usage
     input_path = "./data/TinyStoriesV2-GPT4-valid.txt"
-    vocab_size = 1000
+    vocab_size = 10000
     special_tokens = ["<|endoftext|>"]
     trainer = BPETrainer(vocab_size, special_tokens)
-    token_vocab, merges = trainer.train(input_path)
-    trainer.to_files("./data/output/token_vocab.bin", "./data/output/merges.bin")
+    # token_vocab, merges = trainer.train(input_path)
+    cProfile.run('trainer.train(input_path)', 'tokenizer_stats') 
+    p = pstats.Stats('tokenizer_stats')
+    p.strip_dirs().sort_stats(pstats.SortKey.CUMULATIVE).print_stats(20)
+    # trainer.to_files("./data/output/token_vocab.bin", "./data/output/merges.bin")
 
     # print("Token Vocabulary:")
     # for idx, token in token_vocab.items():

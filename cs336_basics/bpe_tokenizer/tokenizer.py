@@ -1,3 +1,5 @@
+import os
+import numpy as np
 from typing import Dict, Iterable, List, Tuple
 from .pre_tokenizer import PreTokenizer
 
@@ -147,6 +149,12 @@ class BPETokenizer:
                 token_ids = self.calculate_token_ids(word)
                 self.word_to_ids[word] = token_ids
                 yield from token_ids
+
+    def encode_to_npfile(self, input_path: os.PathLike, output_path: os.PathLike) -> None:
+        """
+        将输入文件中的文本编码为BPE token ID列表，并保存为numpy数组文件.npy
+        """
+        pass
 
     def decode(self, ids: List[int]) -> str:
         """
