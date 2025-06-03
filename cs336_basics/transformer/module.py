@@ -388,13 +388,13 @@ class TransformerLM(nn.Module):
             rope_theta: 旋转位置编码的基数
         """
         super().__init__()
-        self.token_embedding = Embedding(vocab_size, d_model, device=device, dtype=dtype)
+        self.token_embedding = Embedding(vocab_size, d_model, device=device)
         self.tf_blocks = nn.ModuleList([
             TransformerBlock(d_model, num_heads, context_length, d_ff, rope_theta, device=device)
             for _ in range(num_layers)
         ])
         self.ln_final = RMSNorm(d_model, device=device)
-        self.output_embedding = Linear(d_model, vocab_size, device=device, dtype=dtype)
+        self.output_embedding = Linear(d_model, vocab_size, device=device)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
