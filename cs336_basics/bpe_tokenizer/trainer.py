@@ -5,6 +5,7 @@ from collections import Counter
 from typing import Dict, List, Set, Tuple
 import cProfile
 import pstats
+import heapq
 
 from cs336_basics.bpe_tokenizer.pre_tokenizer import PreTokenizer
 
@@ -22,40 +23,76 @@ class BPETrainer:
         self.preprocessor = PreTokenizer(special_tokens)
         self.token_vocab: Dict[int, bytes] = {}
         self.merges: List[Tuple[bytes, bytes]] = []
-        self.splits: Dict[bytes, List[bytes]] = {}  # b"going" -> [b'g', b'o', b'ing']
+        self.splits: Dict[bytes, List[bytes]] = {}  # b"going" -> [b'g', b'o', b'ing'] 可以以此知道当前word有哪些pair
         self.pair_freqs: Dict[Tuple[bytes, bytes], int] = {}
 
         # 反向索引，记录每个pair出现在哪些单词中
         self.pair_to_words: Dict[Tuple[bytes, bytes], Set[bytes]] = {}
+        # 最大堆，用于快速在pair_freqs中找到频率最高的pair
+        self.freq_max_heap = []
+
+    def _push_pair_to_heap(self, pair: Tuple[bytes, bytes], freq: int) -> None:
+        def bytes_to_lex_int(b: bytes) -> int:
+            return int.from_bytes(b, byteorder='big')
+        inverted_pair = (-bytes_to_lex_int(pair[0]), -bytes_to_lex_int(pair[1]))
+        heapq.heappush(self.freq_max_heap, (-freq, inverted_pair, pair))
     
-    def initialize_splits_and_pairs(self, word_freq: Counter) -> None:
-        """初始化splits和pair_freqs"""
-        # 将单词分割成字节序列
-        self.splits = {}
-        for word, freq in word_freq.items():
+    def _pop_pair_from_heap(self) -> Tuple[bytes, bytes]:
+        """从最大堆中弹出频率最高的字节对"""
+        while self.freq_max_heap:
+            freq, inverted_pair, pair = heapq.heappop(self.freq_max_heap)
+            freq = -freq
+            if pair in self.pair_freqs and self.pair_freqs[pair] == freq:
+                # 因为pair_freqs删除pair/减少某个pair的freq后，最大堆不立刻同步更新（使用懒惰删除策略）,所以要在弹出时进行检测
+                # 如果不一样说明对应频率已经被减小/被删除
+                return pair
+        raise ValueError("堆没有返回频率最大的字节对")
+    
+    def initialize_splits_and_pairs(self, word_freqs: Counter) -> None:
+        """初始化splits、pair_freqs、pair_to_words、freq_max_heap"""
+        for word, word_freq in word_freqs.items():
+            # 初始化splits，将单词转换为字节序列
             self.splits[word] = [bytes([b]) for b in word]
-        
-        # 初始化pair_freqs
-        self.pair_freqs = {}
-        for word, freq in word_freq.items():
+
             word_pieces = self.splits[word]
             if len(word_pieces) == 1:
                 continue
-            
-            for j in range(len(word_pieces) - 1):
-                pair = (word_pieces[j], word_pieces[j + 1])
-                self.pair_freqs[pair] = self.pair_freqs.get(pair, 0) + freq
+            for j, pair in enumerate(zip(word_pieces[:-1], word_pieces[1:])):
+                # 扫描每个单词的每个字节对，初始化pair_freqs
+                self.pair_freqs[pair] = self.pair_freqs.get(pair, 0) + word_freq
 
-                # 记录pair出现在哪些单词中，构建反向索引
+                # 记录pair出现在哪些单词中，初始化反向索引pair_to_words
                 if pair not in self.pair_to_words:
                     self.pair_to_words[pair] = set()
                 self.pair_to_words[pair].add(word)
+        
+        # 初始化最大堆
+        for pair, freq in self.pair_freqs.items():
+            self._push_pair_to_heap(pair, freq)
+        
     
     def find_best_pair(self) -> Tuple[bytes, bytes]:
         """找到频率最高的字节对"""
-        return max(self.pair_freqs.items(), key=lambda x: (x[1], x[0]))[0]
+        return self._pop_pair_from_heap()
     
-    def update_splits_and_pairs(self, best_pair: Tuple[bytes, bytes], new_token: bytes, word_freq: Counter) -> None:
+    def _update_pair_freqs(self, new_pair, old_pair, word, word_freq) -> None:
+        # 添加 new_pair
+        self.pair_to_words.setdefault(new_pair, set()).add(word)
+        self.pair_freqs[new_pair] = self.pair_freqs.get(new_pair, 0) + word_freq
+        # 一个new_pair可能被多次添加到堆中，但是应该问题不大
+        self._push_pair_to_heap(new_pair, self.pair_freqs[new_pair])
+
+        # 减少 old_pair
+        if old_pair in self.pair_freqs:
+            self.pair_freqs[old_pair] -= word_freq
+            if self.pair_freqs[old_pair] <= 0:
+                del self.pair_freqs[old_pair]
+            else:
+                # 如果old_pair仍然存在，更新最大堆
+                self._push_pair_to_heap(old_pair, self.pair_freqs[old_pair])
+        # 这里就不删除pair_to_words和freq_max_heap的对应项了，前者我们只关心我们要查的pair有就行，后者我们在取出时会检查
+    
+    def update_splits_and_pairs(self, best_pair: Tuple[bytes, bytes], new_token: bytes, word_freqs: Counter) -> None:
         """更新splits和pair_freqs"""
         # 哪些词包含best_pair，需要被更新
         # 直接从反向索引中获取
@@ -63,6 +100,7 @@ class BPETrainer:
 
         # 更新splits
         for word in affected_words:
+            word_freq = word_freqs[word]
             word_pieces = self.splits[word]
             i = 0
             while i < len(word_pieces) - 1:
@@ -70,51 +108,62 @@ class BPETrainer:
                     # 如果找到best_pair，合并
                     word_pieces[i] = new_token
                     word_pieces.pop(i + 1)
-                    # 更新pair_to_words，如果合并后左侧或右侧还有元素，则会出现新对
+
+                    # 删除best_pair在pair_freqs中的记录
+                    if best_pair in self.pair_freqs:
+                        del self.pair_freqs[best_pair]
+
+                    # 如果合并后左侧或右侧还有元素，则会出现新对，影响旧对
+                    # 要更新pair_freqs、pair_to_words
+                    # 假设合并前word_pieces为 [A, B, C, D]，合并后变为 [A, BC, D]
                     if i > 0:
-                        new_pair_left = (word_pieces[i - 1], new_token)
-                        self.pair_to_words.setdefault(new_pair_left, set()).add(word)
+                        # 添加 A, BC ; 减少 A, B
+                        new_pair_left = (word_pieces[i-1], new_token)
+                        old_pair_left = (word_pieces[i-1], best_pair[0])
+                        self._update_pair_freqs(new_pair_left, old_pair_left, word, word_freq)
                     if i < len(word_pieces) - 1:
-                        new_pair_right = (new_token, word_pieces[i + 1])
-                        self.pair_to_words.setdefault(new_pair_right, set()).add(word)
+                        # 添加 BC, D ; 减少 C, D
+                        new_pair_right = (new_token, word_pieces[i+1])
+                        old_pair_right = (best_pair[1], word_pieces[i+1])
+                        self._update_pair_freqs(new_pair_right, old_pair_right, word, word_freq)
                 else:
                     i += 1
         
         # 更新pair_freqs
-        self._update_pair_freqs(affected_words, best_pair, new_token, word_freq)
+        # self._update_pair_freqs(affected_words, best_pair, new_token, word_freqs)           
     
-    def _update_pair_freqs(self, affected_words: List[bytes], best_pair: Tuple[bytes, bytes], 
-                          new_token: bytes, word_freq: Counter) -> None:
-        """更新pair_freqs字典"""
-        for word in affected_words:
-            freq = word_freq[word]
-            word_pieces = self.splits[word]
+    # def _update_pair_freqs(self, affected_words: List[bytes], best_pair: Tuple[bytes, bytes], 
+    #                       new_token: bytes, word_freq: Counter) -> None:
+    #     """更新pair_freqs字典"""
+    #     for word in affected_words:
+    #         freq = word_freq[word]
+    #         word_pieces = self.splits[word]
 
-            # 删除 best_pair
-            if best_pair in self.pair_freqs:
-                del self.pair_freqs[best_pair]
+    #         # 删除 best_pair
+    #         if best_pair in self.pair_freqs:
+    #             del self.pair_freqs[best_pair]
                 
-            # 寻找词中的所有可能受影响的字节对
-            for j in range(len(word_pieces) - 1):
-                pair = (word_pieces[j], word_pieces[j + 1])
-                if pair[0] == new_token and pair[1] == new_token:
-                    # new_token为AB 如果pair为AB,AB 只需要增加AB,AB
-                    self.pair_freqs[(new_token, new_token)] = self.pair_freqs.get((new_token, new_token), 0) + freq
-                elif pair[0] == new_token:
-                    # new_token为AB 如果pair为AB,D 需要减少B,D且增加AB,D
-                    if (best_pair[1], pair[1]) in self.pair_freqs:
-                        self.pair_freqs[(best_pair[1], pair[1])] -= freq
-                        if self.pair_freqs[(best_pair[1], pair[1])] <= 0:
-                            del self.pair_freqs[(best_pair[1], pair[1])]
-                    self.pair_freqs[(new_token, pair[1])] = self.pair_freqs.get((new_token, pair[1]), 0) + freq
+    #         # 寻找词中的所有可能受影响的字节对
+    #         for j in range(len(word_pieces) - 1):
+    #             pair = (word_pieces[j], word_pieces[j + 1])
+    #             if pair[0] == new_token and pair[1] == new_token:
+    #                 # new_token为AB 如果pair为AB,AB 只需要增加AB,AB
+    #                 self.pair_freqs[(new_token, new_token)] = self.pair_freqs.get((new_token, new_token), 0) + freq
+    #             elif pair[0] == new_token:
+    #                 # new_token为AB 如果pair为AB,D 需要减少B,D且增加AB,D
+    #                 if (best_pair[1], pair[1]) in self.pair_freqs:
+    #                     self.pair_freqs[(best_pair[1], pair[1])] -= freq
+    #                     if self.pair_freqs[(best_pair[1], pair[1])] <= 0:
+    #                         del self.pair_freqs[(best_pair[1], pair[1])]
+    #                 self.pair_freqs[(new_token, pair[1])] = self.pair_freqs.get((new_token, pair[1]), 0) + freq
                     
-                elif pair[1] == new_token:
-                    # new_token为AB 如果pair为C,AB 需要减少C,A且增加C,AB
-                    if (pair[0], best_pair[0]) in self.pair_freqs:
-                        self.pair_freqs[(pair[0], best_pair[0])] -= freq
-                        if self.pair_freqs[(pair[0], best_pair[0])] <= 0:
-                            del self.pair_freqs[(pair[0], best_pair[0])]
-                    self.pair_freqs[(pair[0], new_token)] = self.pair_freqs.get((pair[0], new_token), 0) + freq
+    #             elif pair[1] == new_token:
+    #                 # new_token为AB 如果pair为C,AB 需要减少C,A且增加C,AB
+    #                 if (pair[0], best_pair[0]) in self.pair_freqs:
+    #                     self.pair_freqs[(pair[0], best_pair[0])] -= freq
+    #                     if self.pair_freqs[(pair[0], best_pair[0])] <= 0:
+    #                         del self.pair_freqs[(pair[0], best_pair[0])]
+    #                 self.pair_freqs[(pair[0], new_token)] = self.pair_freqs.get((pair[0], new_token), 0) + freq
     
     def add_special_tokens(self) -> None:
         """将特殊token添加到词汇表中"""
