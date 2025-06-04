@@ -6,8 +6,17 @@
       "type": "debugpy",
       "request": "launch",
       "module": "pytest",
-      "args": ["-k test_multihead_self_attention"],
+      "args": ["-k test_train_bpe"],
       "justMyCode": false
-    }
+    },
+    {
+      "name": "Debug train_model",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "~/cs336-assignment1-basics/cs336_basics/transformer/train.py",
+      "cwd": "~/cs336-assignment1-basics",
+      "args": [],
+      "justMyCode": false
+    },
   ]
 }
