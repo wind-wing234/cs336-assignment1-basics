@@ -193,7 +193,7 @@ if __name__ == "__main__":
         model=model,
         optimizer=optimizer,
         iteration=total_steps,
-        save_path=data_paths["final_model_path"],
+        out=data_paths["final_model_path"],
     )
     logger.info("最终模型保存成功。")
     
