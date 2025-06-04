@@ -2,32 +2,42 @@ import math
 import os
 from typing import IO, BinaryIO, Callable, Iterable, Optional
 import torch
+from torch import nn
 import numpy.typing as npt
 import numpy as np
+from einops import einsum, rearrange
 
 def cross_entropy(logits_i: torch.Tensor, target_i: torch.Tensor) -> torch.Tensor:
     """
     计算单个样本中单个词的交叉熵
 
     Args:
-        logits_i: [1:x_{i}]计算出的未归一化logits向量 (batch_size, vocab_size)
-        target_i: 表示logits中第几个是正确答案 (batch_size,).
+        logits_i: [1:x_{i}]计算出的未归一化logits向量 (batch_size, ..., vocab_size)
+        target_i: 表示logits中第几个是正确答案 (batch_size, ...)
 
     Returns:
         torch.Tensor: 平均交叉熵
     """
     # 原式：-log{ softmax(logits_i)[target_i] } 
     # 拆开softmax并化简：-logits[target_i] + log(sum(exp(logits_i)))
+    
+    # 对多维度输入reshape
+    logits_i_reshaped = rearrange(logits_i, "b ... v -> (b ...) v")  # (batch_size, vocab_size)
+    target_i_reshaped = rearrange(target_i, "b ... -> (b ...)")  # (batch_size,)
 
     # 对logits预处理，减去每个样本中的最大logit，防止上溢
-    logits_i_stable = logits_i - logits_i.max(dim=-1, keepdim=True).values
+    logits_i_stable = logits_i_reshaped - logits_i_reshaped.max(dim=-1, keepdim=True).values
 
     # 计算交叉熵
-    targets_logit = logits_i_stable.gather(1, target_i.unsqueeze(1)).squeeze(1)
+    targets_logit = logits_i_stable.gather(1, target_i_reshaped.unsqueeze(1)).squeeze(1)
     log_sum_exp = torch.log(torch.sum(torch.exp(logits_i_stable), dim=-1))
     loss = -targets_logit + log_sum_exp
     # 平均交叉熵
     return loss.mean()
+
+    # log_probs = torch.nn.functional.log_softmax(logits_i, dim=-1)
+    # loss = torch.nn.functional.nll_loss(log_probs, target_i)
+    # return loss
 
 class SGDOptimizer(torch.optim.Optimizer):
     def __init__(self, params, lr=1e-3):
@@ -202,8 +212,8 @@ def get_batch(dataset: npt.NDArray, batch_size: int, context_length: int, device
         raise ValueError(f"Dataset length {dataset_len} is less than context length {context_length}.")
 
     starts = np.random.randint(0, dataset_len - context_length, size=batch_size)
-    inputs = np.stack([dataset[start:start + context_length] for start in starts])
-    targets = np.stack([dataset[start + 1:start + context_length + 1] for start in starts])
+    inputs = np.stack([dataset[start:start + context_length] for start in starts], dtype=np.int64)
+    targets = np.stack([dataset[start + 1:start + context_length + 1] for start in starts], dtype=np.int64)
 
     return (
         # from_numpy会使用numpy数组的内存，不会复制数据，而Tensor会复制
@@ -240,6 +250,40 @@ def load_checkpoint(
     optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
     return checkpoint["iteration"]
 
+def evaluate_model(model: nn.Module, dataset, device, batch_size, context_length, num_batches=10):
+    """
+    在验证集上评估模型性能
+    
+    Args:
+        model: 要评估的模型
+        dataset: 验证数据集，一维token序列
+        device: 计算设备
+        batch_size: 批次大小
+        context_length: 上下文长度
+        num_batches: 要评估的批次数量
+        
+    Returns:
+        float: 验证集上的平均损失
+    """
+    model.eval()  # 设置为评估模式
+    total_loss = 0.0
+    with torch.no_grad():  # 不计算梯度以节省内存
+        for _ in range(num_batches):
+            # 从验证集中获取一批数据
+            inputs, targets = get_batch(
+                dataset,
+                batch_size=batch_size,
+                context_length=context_length,
+                device=device
+            )
+            # 前向传播
+            logits = model(inputs)
+            # 计算损失
+            loss = cross_entropy(logits, targets)
+            total_loss += loss.item()
+    
+    model.train()  # 恢复为训练模式
+    return total_loss / num_batches  # 返回平均损失
 
 if __name__ == "__main__":
     # 优化器示例

@@ -32,15 +32,16 @@ class BPETrainer:
         self.freq_max_heap = []
 
     def _push_pair_to_heap(self, pair: Tuple[bytes, bytes], freq: int) -> None:
-        def bytes_to_lex_int(b: bytes) -> int:
-            return int.from_bytes(b, byteorder='big')
-        inverted_pair = (-bytes_to_lex_int(pair[0]), -bytes_to_lex_int(pair[1]))
-        heapq.heappush(self.freq_max_heap, (-freq, inverted_pair, pair))
+        # def bytes_to_lex_int(b: bytes) -> int:
+        #     return int.from_bytes(b, byteorder='big')
+        # inverted_pair = (-bytes_to_lex_int(pair[0]), -bytes_to_lex_int(pair[1]))
+        # TODO：这里freq时排序有问题，插入不符合字典序
+        heapq.heappush(self.freq_max_heap, (-freq, pair))
     
     def _pop_pair_from_heap(self) -> Tuple[bytes, bytes]:
         """从最大堆中弹出频率最高的字节对"""
         while self.freq_max_heap:
-            freq, inverted_pair, pair = heapq.heappop(self.freq_max_heap)
+            freq, pair = heapq.heappop(self.freq_max_heap)
             freq = -freq
             if pair in self.pair_freqs and self.pair_freqs[pair] == freq:
                 # 因为pair_freqs删除pair/减少某个pair的freq后，最大堆不立刻同步更新（使用懒惰删除策略）,所以要在弹出时进行检测
@@ -173,10 +174,9 @@ class BPETrainer:
     def train(self, input_path: str) -> Tuple[Dict[int, bytes], List[Tuple[bytes, bytes]]]:
         """训练BPE模型"""
         # 读取语料
-        docs = self.preprocessor.read_corpus(input_path)
-        
-        # 预分词，建立词频字典
-        word_freq = self.preprocessor.build_word_frequency(docs)
+        for docs in self.preprocessor.read_corpus(input_path):
+            # 预分词，建立词频字典
+            word_freq = self.preprocessor.build_word_frequency(docs)
         
         # BPE训练开始
         
@@ -267,15 +267,15 @@ if __name__ == "__main__":
     # p.strip_dirs().sort_stats(SortKey.CUMULATIVE).print_stats(20)  # 显示累计时间最长的20个函数
 
     # Example usage
-    input_path = "./data/TinyStoriesV2-GPT4-valid.txt"
+    input_path = "./data/TinyStoriesV2-GPT4-train.txt"
     vocab_size = 10000
     special_tokens = ["<|endoftext|>"]
     trainer = BPETrainer(vocab_size, special_tokens)
-    # token_vocab, merges = trainer.train(input_path)
-    cProfile.run('trainer.train(input_path)', 'tokenizer_stats') 
-    p = pstats.Stats('tokenizer_stats')
-    p.strip_dirs().sort_stats(pstats.SortKey.CUMULATIVE).print_stats(20)
-    # trainer.to_files("./data/output/token_vocab.bin", "./data/output/merges.bin")
+    token_vocab, merges = trainer.train(input_path)
+    # cProfile.run('trainer.train(input_path)', 'tokenizer_stats') 
+    # p = pstats.Stats('tokenizer_stats')
+    # p.strip_dirs().sort_stats(pstats.SortKey.CUMULATIVE).print_stats(20)
+    trainer.to_files("./data/output/TinyStories_train_10000_token_vocab.bin", "./data/output/TinyStories_train_10000_merges.bin")
 
     # print("Token Vocabulary:")
     # for idx, token in token_vocab.items():
