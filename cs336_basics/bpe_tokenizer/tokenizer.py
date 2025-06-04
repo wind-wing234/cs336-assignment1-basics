@@ -1,7 +1,8 @@
 import os
 import numpy as np
 from typing import Dict, Iterable, List, Tuple
-from .pre_tokenizer import PreTokenizer
+from tqdm import tqdm
+from cs336_basics.bpe_tokenizer.pre_tokenizer import PreTokenizer
 
 class BPETokenizer:
     def __init__(self, vocab:Dict[int, bytes], merges:List[Tuple[bytes, bytes]], special_tokens:List[str] = None) -> None:
@@ -154,7 +155,33 @@ class BPETokenizer:
         """
         将输入文件中的文本编码为BPE token ID列表，并保存为numpy数组文件.npy
         """
-        pass
+        import tempfile
+
+        # # 计算文件总行数用于进度条
+        # total_lines = 0
+        # with open(input_path, 'r', encoding='utf-8') as f:
+        #     for _ in f:
+        #         total_lines += 1
+        
+        with tempfile.NamedTemporaryFile(delete=False) as tmpfile:
+            token_count = 0
+
+            with open(input_path, 'r', encoding='utf-8') as f:
+                # 使用tqdm创建进度条
+                for token_id in tqdm(self.encode_iterable(f), desc="编码进度", unit="token", total=None):
+                    tmpfile.write(np.int32(token_id).tobytes())
+                    token_count += 1
+
+            tmpfile_path = tmpfile.name
+
+        # 读取临时文件创建memmap，并保存为.npy
+        print("正在保存到文件...")
+        mm_array = np.memmap(tmpfile_path, dtype=np.int32, mode='r', shape=(token_count,))
+        np.save(output_path, mm_array)
+        del mm_array
+        os.remove(tmpfile_path)
+
+        print(f"文件已保存至：{output_path}\n总token数：{token_count}")
 
     def decode(self, ids: List[int]) -> str:
         """
@@ -172,11 +199,13 @@ class BPETokenizer:
 if __name__ == "__main__":
     # Example usage
     special_tokens = ["<|endoftext|>"]
-    vocab_path = "./data/output/token_vocab.bin"
-    mergers_path = "./data/output/merges.bin"
-    # input_path = "./data/TinyStoriesV2-GPT4-valid.txt"
-    input_path = "./data/TinyStoriesV2-GPT4-train.txt"
+    vocab_path = "./data/token/TinyStories_train_10000_token_vocab.bin"
+    mergers_path = "./data/token/TinyStories_train_10000_merges.bin"
+    input_path = "./data/TinyStoriesV2-GPT4-valid.txt"
+    # input_path = "./data/TinyStoriesV2-GPT4-train.txt"
     tokenizer = BPETokenizer.from_files(vocab_path, mergers_path, special_tokens)
+    output_path = "./data/token/TinyStories_valid_10000_token_ids.npy"
+    tokenizer.encode_to_npfile(input_path, output_path)
 
     # with open(input_path, 'r', encoding='utf-8') as f:
     #     text = f.read()
@@ -187,14 +216,13 @@ if __name__ == "__main__":
     # decoded_text = tokenizer.decode(encoded_ids[:1000])
     # print("Decoded Text:", decoded_text)
 
-    # 迭代器使用
-    token_list = []
-    with open(input_path, 'r', encoding='utf-8') as f:
-        for id in tokenizer.encode_iterable(f):
-            print(id, end=' ')
-            token_list.append(id)
-            if id == 999:
-                break
-    decoded_text = tokenizer.decode(token_list)
-    print("\nDecoded Text:", decoded_text)
-            
+    # # 迭代器使用
+    # token_list = []
+    # with open(input_path, 'r', encoding='utf-8') as f:
+    #     for id in tokenizer.encode_iterable(f):
+    #         print(id, end=' ')
+    #         token_list.append(id)
+    #         if id == 999:
+    #             break
+    # decoded_text = tokenizer.decode(token_list)
+    # print("\nDecoded Text:", decoded_text)
