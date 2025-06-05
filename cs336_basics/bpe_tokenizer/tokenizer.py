@@ -183,7 +183,7 @@ class BPETokenizer:
 
         print(f"文件已保存至：{output_path}\n总token数：{token_count}")
 
-    def decode(self, ids: List[int]) -> str:
+    def decode(self, ids: Iterable[int], end_token_id: int = None) -> str:
         """
         将BPE token ID列表解码为文本
         """
@@ -194,6 +194,10 @@ class BPETokenizer:
             else:
                 print(f"Warning: ID {id} not found in vocabulary.")
                 continue
+
+            if (end_token_id is not None) and (id == end_token_id):
+                break
+            
         return text_bytes.decode('utf-8', errors='ignore')
 
 if __name__ == "__main__":

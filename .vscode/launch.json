@@ -13,8 +13,8 @@
       "name": "Debug train_model",
       "type": "debugpy",
       "request": "launch",
-      "program": "~/cs336-assignment1-basics/cs336_basics/transformer/train.py",
-      "cwd": "~/cs336-assignment1-basics",
+      "program": "~/cs336-assignment1-basics/cs336_basics/transformer/inference.py",
+      // "cwd": "~/cs336-assignment1-basics",
       "args": [],
       "justMyCode": false
     },

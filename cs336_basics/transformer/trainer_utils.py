@@ -247,7 +247,8 @@ def load_checkpoint(
     checkpoint = torch.load(src) # 数据会被尝试移动到它们保存时所在的设备
                                  # 如果需要移动到其他指定设备，可以使用map_location参数
     model.load_state_dict(checkpoint["model_state_dict"])
-    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    if optimizer is not None:
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
     return checkpoint["iteration"]
 
 def evaluate_model(model: nn.Module, dataset, device, batch_size, context_length, num_batches=10):

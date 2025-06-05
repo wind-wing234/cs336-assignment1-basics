@@ -206,8 +206,7 @@ def softmax(x: torch.Tensor, dim: int) -> torch.Tensor:
     x_exp = torch.exp(x - x_max)
     return x_exp / torch.sum(x_exp, dim=dim, keepdim=True)
 
-def scaled_dot_product_attention(Q: torch.Tensor, K: torch.Tensor, V: torch.Tensor, 
-                                 mask: torch.Tensor = None) -> torch.Tensor:
+def scaled_dot_product_attention(Q: torch.Tensor, K: torch.Tensor, V: torch.Tensor, mask: torch.Tensor = None) -> torch.Tensor:
     """
     计算缩放点积注意力
     Args:
@@ -270,7 +269,7 @@ class MultiheadSelfAttention(nn.Module):
 
         # 因果掩码：(seq_len_q, seq_len_k)
         # 位置i的query不能分配注意力给位置j的key（j>i）
-        mask = torch.tril(torch.ones((seq_len, seq_len), dtype=torch.bool, device=self.device))
+        mask = torch.tril(torch.ones((seq_len, seq_len), dtype=torch.bool)).to(self.device)
         
         atten = scaled_dot_product_attention(Q, K, V, mask)  # (batch, ..., head, seq_len, d_k)
         
@@ -308,7 +307,7 @@ class MultiheadSelfAttentionWithRoPE(MultiheadSelfAttention):
 
         # 因果掩码：(seq_len_q, seq_len_k)
         # 位置i的query不能分配注意力给位置j的key（j>i）
-        mask = torch.tril(torch.ones((seq_len, seq_len), dtype=torch.bool, device=self.device))
+        mask = torch.tril(torch.ones((seq_len, seq_len), dtype=torch.bool)).to(self.device)
         
         atten = scaled_dot_product_attention(Q, K, V, mask)  # (batch, ..., head, seq_len, d_k)
         
