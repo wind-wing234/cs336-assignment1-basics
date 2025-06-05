@@ -1,6 +1,6 @@
 import math
 import os
-from typing import IO, BinaryIO, Callable, Iterable, Optional
+from typing import IO, BinaryIO, Callable, Iterable, Iterator, Optional
 import torch
 from torch import nn
 import numpy.typing as npt
@@ -121,7 +121,7 @@ class AdamWOptimizer(torch.optim.Optimizer):
                 # 为什么要除sqrt(state["exp_avg_sq"])？这相当于让 步长 正比于 1/sqrt(梯度的二阶原点矩)
                 # 如果梯度很大，二阶原点矩也会很大，这样就会减小步长，避免过大步长导致的震荡
                 # 如果梯度很小，二阶原点矩也会很小，这样就会增大步长，避免过小步长导致的收敛速度过慢
-                # 之所以不用中心矩（方差），是因为我们更关系的是梯度的具体大小，而不是梯度的离散程度，离散我们以及通过指数加权平均进行了平滑
+                # 之所以不用中心矩（方差），是因为我们更关系的是梯度的具体大小，而不是梯度的离散程度，离散我们已经通过指数加权平均进行了平滑
                 # 这里的eps是为了防止除0错误，以及sqrt(exp_avg_sq)过小时步长接近inf导致参数上溢
 
                 # 使用权重衰减第二次更新参数
@@ -285,6 +285,24 @@ def evaluate_model(model: nn.Module, dataset, device, batch_size, context_length
     
     model.train()  # 恢复为训练模式
     return total_loss / num_batches  # 返回平均损失
+
+def compute_grad_norm(parameters: Iterator[nn.Parameter]):
+    """
+    计算参数梯度的 L2 范数
+    
+    参数:
+        parameters: 模型参数
+    
+    返回:
+        梯度的 L2 范数
+    """
+    total_norm = 0.0
+    for p in parameters:
+        if p.grad is not None:
+            param_norm = p.grad.detach().data.norm(2)
+            total_norm += param_norm.item() ** 2
+    total_norm = total_norm ** 0.5
+    return total_norm
 
 if __name__ == "__main__":
     # 优化器示例

@@ -36,7 +36,7 @@ if __name__ == "__main__":
         "batch_size": 16,         # 批次大小
         "total_epochs": 0.5,      # 训练轮数
         "checkpoint_freq": 2000,  # 每隔多少步保存一次检查点
-        "log_freq": 50,           # 每隔多少步记录一次日志
+        "log_freq": 10,           # 每隔多少步记录一次日志
         "val_freq": 400,          # 每隔多少步在验证集上评估
         "val_batch_size": 16,     # 验证时的批次大小
         "val_batches": 20,        # 验证时使用的批次数量
@@ -46,7 +46,7 @@ if __name__ == "__main__":
     data_paths = {
         "training_dataset_path": "./data/token/TinyStories_train_10000_token_ids.npy",
         "validation_dataset_path": "./data/token/TinyStories_valid_10000_token_ids.npy",  # 验证集路径
-        "checkpoint_load_path": "./data/model/checkpoint_v0_150.pt",  # 模型检查点路径
+        "checkpoint_load_path": None,  # 模型检查点路径
         "checkpoint_save_format": "./data/model/checkpoint_v0_{}.pt",  # 检查点保存路径格式
         "final_model_path": "./data/model/final_model_v0.pt",  # 最终模型保存路径
     }
@@ -54,7 +54,7 @@ if __name__ == "__main__":
     # 初始化wandb
     run = wandb.init(
         project="cs336-assignment-1",
-        name="train_v0",
+        name="train_v1",
         config={
             "model": model_config,
             "optimizer": optim_config,
@@ -150,15 +150,20 @@ if __name__ == "__main__":
 
         # 反向传播和优化参数
         loss.backward()
+        
+        # 计算梯度的 L2 范数
+        if step % train_config["log_freq"] == 0:
+            grad_norm = utils.compute_grad_norm(model.parameters())
+        
         utils.clip_grad(model.parameters(), max_norm=optim_config["max_norm"]) # 梯度裁剪
         optimizer.step()
 
         # 日志记录
         if step % train_config["log_freq"] == 0:
-            logger.info(f"Step {step}, Loss: {loss.item()}")
+            logger.info(f"Step {step}, Loss: {loss.item()}, Grad L2 Norm: {grad_norm}")
 
-            # 使用wandb记录损失
-            wandb.log({"train_loss": loss.item(), "lr": lr_now, "step": step})
+            # 使用wandb记录损失和梯度范数
+            wandb.log({"train_loss": loss.item(), "lr": lr_now, "grad_l2_norm": grad_norm, "step": step})
         
         # 在验证集上评估模型
         if validation_dataset is not None and step % train_config["val_freq"] == 0:
