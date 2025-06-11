@@ -1,5 +1,20 @@
 # CS336 Spring 2025 Assignment 1: Basics
 
+## 目录结构
+主要代码在 `./cs336_basics` 下，包含以下模块：
+```text
+cs336_basics
+├── bpe_tokenizer     # 基于字节对编码(BPE)的分词器实现
+│   ├── pre_tokenizer.py  # 预分词器
+│   ├── tokenizer.py      # BPE编解码实现
+│   └── trainer.py        # BPE训练器实现和训练脚本
+└── transformer       # Transformer语言模型实现
+    ├── module.py         # 模型架构（transformer及其各个模块）
+    ├── trainer_utils.py  # 训练相关工具（loss、优化器等）
+    ├── train.py          # 模型训练脚本
+    └── inference.py      # 推理及解码脚本
+```
+
 For a full description of the assignment, see the assignment handout at
 [cs336_spring2025_assignment1_basics.pdf](./cs336_spring2025_assignment1_basics.pdf)
 
@@ -46,5 +61,5 @@ wget https://huggingface.co/datasets/stanford-cs336/owt-sample/resolve/main/owt_
 gunzip owt_valid.txt.gz
 
 cd ..
-```
+````
 
