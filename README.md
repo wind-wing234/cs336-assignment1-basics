@@ -1,5 +1,6 @@
 # CS336 Spring 2025 Assignment 1: Basics
-
+CS336 Assignment 1 的个人实现，包括一个 bpe 分词器和一个 Transformer 模型，以及相应的训练和推理（解码）流程。有较多的中文注释。
+仅供参考。如果对你有帮助欢迎加个 star，如有相关问题需要探讨，也可联系 hannah976@qq.com
 ## 目录结构
 主要代码在 `./cs336_basics` 下，包含以下模块：
 ```text
@@ -14,6 +15,8 @@ cs336_basics
     ├── train.py          # 模型训练脚本
     └── inference.py      # 推理及解码脚本
 ```
+原 README
+---
 
 For a full description of the assignment, see the assignment handout at
 [cs336_spring2025_assignment1_basics.pdf](./cs336_spring2025_assignment1_basics.pdf)
